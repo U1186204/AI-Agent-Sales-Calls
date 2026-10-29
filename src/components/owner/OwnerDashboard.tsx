@@ -117,7 +117,9 @@ function DataTable<T>({
 }) {
   if (rows.length === 0) return <p className="table-empty">{empty}</p>;
   return (
-    <div className="table-wrap">
+    // Focusable region so keyboard users can scroll a table wider than the screen (axe:
+    // scrollable-region-focusable).
+    <div className="table-wrap" role="region" aria-label={caption} tabIndex={0}>
       <table className="table">
         <caption className="visually-hidden">{caption}</caption>
         <thead>
