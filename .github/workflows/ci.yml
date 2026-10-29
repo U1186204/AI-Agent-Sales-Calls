@@ -1,0 +1,146 @@
+# Oasis CI. No secrets required: unit tests use temporary SQLite files, and e2e runs the
+# scripted TEST-ONLY assistant (OASIS_LLM_STUB=1, set by playwright.config.ts) against its own
+# database (.data/e2e), so CI never calls the Anthropic API, Resend or Twilio.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  quality:
+    name: Lint, typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests with coverage
+        run: npm run test:coverage
+
+      - name: Coverage summary and badge JSON
+        if: ${{ !cancelled() && hashFiles('coverage/coverage-summary.json') != '' }}
+        run: |
+          node <<'EOF'
+          const fs = require("node:fs");
+          const total = JSON.parse(fs.readFileSync("coverage/coverage-summary.json", "utf8")).total;
+          const rows = ["lines", "statements", "functions", "branches"]
+            .map((k) => `| ${k} | ${total[k].pct}% | ${total[k].covered}/${total[k].total} |`);
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            ["### Unit test coverage", "", "| metric | % | covered |", "|---|---|---|", ...rows, ""].join("\n"),
+          );
+          // shields.io endpoint format: https://shields.io/badges/endpoint-badge
+          const pct = total.lines.pct;
+          const color = pct >= 90 ? "brightgreen" : pct >= 80 ? "green" : pct >= 70 ? "yellowgreen" : pct >= 60 ? "yellow" : "red";
+          fs.writeFileSync(
+            "coverage/coverage-badge.json",
+            JSON.stringify({ schemaVersion: 1, label: "coverage", message: `${pct}%`, color }) + "\n",
+          );
+          console.log(`line coverage ${pct}%`);
+          EOF
+
+      - name: Upload coverage report
+        if: ${{ !cancelled() && hashFiles('coverage/coverage-summary.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
+
+      - name: Build
+        run: npm run build
+
+  e2e:
+    name: Playwright e2e (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium and system dependencies
+        run: npx playwright install --with-deps chromium
+
+      # playwright.config.ts builds the app and starts `next start` on port 3100 with
+      # OASIS_LLM_STUB=1 and DATABASE_URL=.data/e2e/oasis.db (reseeded by global setup).
+      - name: Run e2e tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  # Publishes coverage-badge.json to the orphan `badges` branch on pushes to main, so the
+  # README can show a shields.io endpoint badge without any third-party account.
+  coverage-badge:
+    name: Publish coverage badge
+    needs: quality
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage
+          path: coverage
+
+      - name: Push badge JSON to the badges branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir badges && cp coverage/coverage-badge.json badges/coverage.json
+          cd badges
+          git init -q -b badges
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add coverage.json
+          git commit -q -m "coverage badge for ${GITHUB_SHA}"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" HEAD:badges

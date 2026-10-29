@@ -1,0 +1,84 @@
+# Render Blueprint — Oasis demo on the Render Free web service (Node runtime).
+#
+# Render Free has an EPHEMERAL filesystem: the SQLite file in .data/ is wiped on every deploy,
+# restart and 15-minute idle spin-down. The start command therefore migrates and reseeds on
+# every boot (OASIS_SEED_ON_BOOT=always), so all orders, bookings and conversations made in
+# the demo disappear when the instance sleeps. Outbound SMTP is blocked on Free; email uses
+# the Resend HTTP API (or the mock outbox when RESEND_API_KEY is blank).
+#
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo. Fill the `sync: false`
+# values when prompted (all optional; blanks keep the safe mock/no-LLM behaviour).
+services:
+  - type: web
+    name: oasis
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: true
+    # Dev dependencies are needed to build (TypeScript, Prisma CLI) and to seed at boot (tsx).
+    buildCommand: npm ci --include=dev && npm run build
+    # migrate -> reseed -> exec `next start -H 0.0.0.0 -p $PORT`. See scripts/docker-entrypoint.sh.
+    startCommand: sh scripts/docker-entrypoint.sh
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: OASIS_SEED_ON_BOOT
+        value: always
+      # Render terminates TLS in front of the app; trust X-Forwarded-For for per-IP limits.
+      - key: TRUST_PROXY
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        value: file:./.data/oasis.db
+      - key: OUTBOX_DIR
+        value: .data/outbox
+      # Leave APP_URL unset to use RENDER_EXTERNAL_URL automatically; set it for a custom domain.
+      - key: APP_URL
+        sync: false
+
+      # --- LLM (blank = assistant shows "not configured"; the booking form still works) ---
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OASIS_MODEL
+        value: claude-haiku-4-5
+      - key: OASIS_SESSION_BUDGET_USD
+        value: "0.25"
+      - key: OASIS_DAILY_BUDGET_USD
+        value: "2.00"
+
+      # --- Secrets: Render generates a random base64 256-bit (32-byte) value for each ---
+      - key: OASIS_ENCRYPTION_KEY
+        generateValue: true
+      - key: OASIS_HMAC_KEY
+        generateValue: true
+      - key: SESSION_SECRET
+        generateValue: true
+      # Owner dashboard login. REQUIRED: on a public URL the app refuses to start with the
+      # documented demo password hash. Generate with `npm run owner:hash -- "passphrase"` and
+      # paste the RAW (unescaped) hash. For a throwaway demo only, you may instead set
+      # OASIS_ALLOW_DEMO_SECRETS=true (logs an error on every start).
+      - key: OWNER_USERNAME
+        value: owner
+      - key: OWNER_PASSWORD_HASH
+        sync: false
+
+      # --- Notifications (blank = mock: logged + written to the ephemeral outbox) ---
+      - key: SUPPORT_EMAIL
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM
+        sync: false

@@ -1,0 +1,312 @@
+// Oasis data model. See docs/SPEC.md §5.
+//
+// Portability rules (SQLite for the demo, Postgres-ready):
+// - Money is integer cents (Int). Token cost is integer micro-dollars (Int).
+// - Status/kind columns are String validated by Zod in src/contracts (no DB enums),
+//   so switching the provider to "postgresql" needs no schema rewrite.
+// - Timestamps are stored in UTC.
+// - Columns ending in `Enc` hold AES-256-GCM ciphertext: `v1:<iv b64>:<tag b64>:<ct b64>`.
+//
+// Slot model (refined in SPEC §5 notes):
+// - One Slot row = one 60-minute start position for one contractor.
+// - A booking whose duration is N minutes occupies ceil(N / 60) consecutive slots of the
+//   same contractor. The FIRST slot is the booking's anchor: `Booking.slotId` (unique FK)
+//   points to it and `Slot.bookingId` (unique) points back. Every occupied slot, including
+//   the anchor, has `coveredByBookingId` set and `status = "booked"`.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Business {
+  id           String   @id // slug, e.g. "volt-supply"
+  name         String
+  kind         String // "product" | "service"
+  timezone     String // IANA zone, e.g. "America/Chicago"
+  supportEmail String
+  notifyEmail  String
+  notifyPhone  String // E.164
+  createdAt    DateTime @default(now())
+
+  products       Product[]
+  services       Service[]
+  contractors    Contractor[]
+  slots          Slot[]
+  customers      Customer[]
+  orders         Order[]
+  bookings       Booking[]
+  drafts         CheckoutDraft[]
+  conversations  Conversation[]
+  notifications  Notification[]
+  escalations    Escalation[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  businessId  String
+  sku         String
+  name        String
+  category    String
+  description String
+  priceCents  Int
+  unit        String
+  weightLb    Float
+  qtyOnHand   Int
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, sku])
+  @@index([businessId, category])
+}
+
+model Service {
+  id          String   @id @default(cuid())
+  businessId  String
+  code        String // key into src/config/pricing.ts SERVICE_CATALOG
+  name        String
+  description String
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, code])
+}
+
+model Contractor {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String // first name + last initial only
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  slots    Slot[]
+  bookings Booking[]
+
+  @@index([businessId])
+}
+
+model Slot {
+  id                 String    @id @default(cuid())
+  businessId         String
+  contractorId       String
+  startsAt           DateTime
+  endsAt             DateTime
+  status             String    @default("open") // "open" | "held" | "booked"
+  heldUntil          DateTime?
+  bookingId          String?   @unique // set on the anchor (first) slot only
+  coveredByBookingId String? // set on every slot a booking occupies
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  business   Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contractor Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  booking    Booking?   @relation("BookingAnchorSlot")
+
+  @@unique([contractorId, startsAt])
+  @@index([businessId, startsAt, status])
+  @@index([coveredByBookingId])
+}
+
+model Customer {
+  id           String   @id @default(cuid())
+  businessId   String
+  emailHash    String // HMAC-SHA256(lower(email)) for lookup
+  firstNameEnc String
+  lastNameEnc  String
+  emailEnc     String
+  phoneEnc     String
+  addressEnc   String // encrypted JSON {line1,line2,city,state,zip}
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  orders   Order[]
+  bookings Booking[]
+
+  @@unique([businessId, emailHash])
+}
+
+model Order {
+  id              String   @id @default(cuid())
+  reference       String   @unique // OAS-XXXX-XXXX
+  businessId      String
+  customerId      String
+  conversationId  String?
+  draftId         String?  @unique // idempotency: one order per checkout draft
+  status          String   @default("confirmed") // confirmed|processing|shipped|delivered|cancelled
+  lines           Json // snapshot: [{sku,name,unit,qty,unitPriceCents,lineCents,weightLb}]
+  subtotalCents   Int
+  discountCents   Int      @default(0)
+  shippingCents   Int
+  taxCents        Int
+  totalCents      Int
+  shipZone        Int
+  instructionsEnc String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer     Customer      @relation(fields: [customerId], references: [id])
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  payment      Payment?
+
+  @@index([businessId, createdAt])
+  @@index([customerId])
+}
+
+model Booking {
+  id              String   @id @default(cuid())
+  reference       String   @unique // OAS-XXXX-XXXX
+  businessId      String
+  customerId      String
+  conversationId  String?
+  draftId         String?  @unique // idempotency: one booking per checkout draft
+  slotId          String   @unique // anchor slot
+  contractorId    String
+  serviceCode     String
+  selection       Json // {tier, addOns[], surcharges[], frequency?, inputs?}
+  status          String   @default("confirmed") // confirmed|completed|cancelled
+  startsAt        DateTime
+  durationMin     Int
+  subtotalCents   Int
+  discountCents   Int      @default(0)
+  shippingCents   Int      @default(0)
+  taxCents        Int
+  totalCents      Int
+  instructionsEnc String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer     Customer      @relation(fields: [customerId], references: [id])
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  slot         Slot          @relation("BookingAnchorSlot", fields: [slotId], references: [id])
+  contractor   Contractor    @relation(fields: [contractorId], references: [id])
+  payment      Payment?
+
+  @@index([businessId, startsAt])
+  @@index([customerId])
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  orderId     String?  @unique
+  bookingId   String?  @unique
+  provider    String   @default("none") // none|stripe|apple_pay
+  status      String   @default("not_required") // not_required|pending|authorized|captured|failed
+  amountCents Int
+  providerRef String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  order   Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+model CheckoutDraft {
+  id             String   @id @default(cuid())
+  businessId     String
+  conversationId String
+  kind           String // "product" | "service"
+  selection      Json
+  quote          Json
+  status         String   @default("open") // open|completed|expired
+  resultRef      String? // order/booking reference once completed
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  business     Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@index([conversationId])
+}
+
+model Conversation {
+  id           String   @id @default(cuid())
+  businessId   String
+  createdAt    DateTime @default(now())
+  lastActiveAt DateTime @default(now())
+  messageCount Int      @default(0)
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  costMicros   Int      @default(0) // USD * 1e6
+  escalated    Boolean  @default(false)
+  outcome      String   @default("none") // none|order|booking|escalated
+
+  business    Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages    Message[]
+  drafts      CheckoutDraft[]
+  orders      Order[]
+  bookings    Booking[]
+  escalations Escalation[]
+
+  @@index([businessId, lastActiveAt])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String // user|assistant|system|tool
+  contentEnc     String // redacted, then encrypted
+  trace          Json? // TraceStep[], PII-masked
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model Escalation {
+  id             String   @id @default(cuid())
+  businessId     String
+  conversationId String?
+  reason         String // short category, e.g. "requested_human" | "frustration" | "unresolved"
+  summaryEnc     String // redacted + encrypted conversation summary
+  status         String   @default("open") // open|resolved
+  createdAt      DateTime @default(now())
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  businessId String
+  channel    String // email|sms
+  audience   String // customer|business|support
+  provider   String // resend|twilio|mock
+  status     String // sent|failed|mocked
+  toMasked   String
+  subject    String?
+  relatedRef String?
+  error      String?
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@index([relatedRef])
+}
+
+model UsageDay {
+  day          String   @id // YYYY-MM-DD (UTC)
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  costMicros   Int      @default(0)
+  requests     Int      @default(0)
+  updatedAt    DateTime @updatedAt
+}

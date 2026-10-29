@@ -1,0 +1,46 @@
+# Keep the build context small and free of secrets/local state.
+
+# dependencies + build output (rebuilt inside the image)
+node_modules
+.next
+out
+src/generated
+*.tsbuildinfo
+next-env.d.ts
+
+# secrets + local data (env comes from --env-file / compose env_file at runtime)
+.env
+.env.*
+!.env.example
+.data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# test + tooling output
+.artifacts
+coverage
+playwright-report
+test-results
+blob-report
+*.log
+
+# images (docs images are not needed at runtime)
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# VCS, CI, editor, OS
+.git
+.github
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# container files themselves
+Dockerfile
+.dockerignore
+docker-compose.yml

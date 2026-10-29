@@ -1,0 +1,14 @@
+node_modules
+.next
+src/generated
+prisma/migrations
+coverage
+playwright-report
+test-results
+.artifacts
+.data
+package-lock.json
+docs/research
+*.md
+.env*
+src/generated
