@@ -277,6 +277,7 @@ describe("other contracts", () => {
 
   it("every tool has input/output schemas and requires a reason", () => {
     expect(Object.keys(TOOL_SCHEMAS).sort()).toEqual([...TOOL_NAMES].sort());
+    for (const name of TOOL_NAMES) expect(TOOL_SCHEMAS[name].description).not.toBe("");
     const minimal: Record<string, unknown> = {
       search_catalog: {},
       get_product: { sku: "EL-GFCI-20" },

@@ -12,6 +12,14 @@ import {
   REPLY_PRODUCT_FORM,
   REPLY_SERVICE_FORM,
   REPLY_STOCK,
+  REPLY_TRACE_FAILED,
+  REPLY_TRACE_GUARDS,
+  REPLY_TRACE_LONG,
+  REPLY_TRACE_NONE,
+  REPLY_TRACE_NO_USAGE,
+  REPLY_TRACE_OTHER_MODEL,
+  REPLY_TRACE_STUB,
+  REPLY_TRACE_TYPICAL,
   STATUS_FOUND,
   chatText,
   productReview,
@@ -120,6 +128,49 @@ test("chat states", async ({ page }) => {
   await form.evaluate((el) => el.scrollIntoView({ block: "start" }));
   await shot(page, "16-success", false);
 });
+
+const TRACE_STATES = {
+  typical: [REPLY_TRACE_TYPICAL],
+  failed: [REPLY_TRACE_FAILED],
+  guards: [REPLY_TRACE_GUARDS],
+  long: [REPLY_TRACE_LONG],
+  none: [REPLY_TRACE_NONE],
+  stub: [REPLY_TRACE_STUB],
+  multi: [REPLY_TRACE_TYPICAL, REPLY_TRACE_NO_USAGE, REPLY_TRACE_OTHER_MODEL, REPLY_TRACE_FAILED],
+};
+
+for (const [state, replies] of Object.entries(TRACE_STATES)) {
+  test(`trace panel: ${state}`, async ({ page }) => {
+    await mockChat(page, replies);
+    await page.goto("/chat/volt-supply");
+    for (const [i] of replies.entries()) {
+      await page.locator("#chat-input").fill(`Question ${i + 1} about 12/2 romex`);
+      await page.locator("#chat-input").press("Enter");
+      await expect(page.locator(".msg--user")).toHaveCount(i + 1);
+      await expect(page.locator(".msg--assistant")).toHaveCount(i + 2);
+    }
+    const width = page.viewportSize()!.width;
+    const wide = width >= 1024;
+    if (!wide) await page.locator(".trace-toggle").click();
+    const panel = page.locator(wide ? "aside.trace-aside" : "dialog.sheet");
+    await expect(panel.locator(".trace-group").first()).toBeVisible();
+    await shot(page, `30-trace-${state}-fold`, false);
+    // Tall viewport so the whole panel fits in one image.
+    await page.setViewportSize({ width, height: 2600 });
+    await shot(page, `31-trace-${state}-all`, false);
+    await panel.locator("details.trace-step").evaluateAll((all) => {
+      for (const d of all as HTMLDetailsElement[]) d.open = true;
+    });
+    await shot(page, `32-trace-${state}-expanded`, false);
+    if (state === "typical") {
+      await panel.locator("details.trace-step").evaluateAll((all) => {
+        for (const d of all as HTMLDetailsElement[]) d.open = false;
+      });
+      const box = await panel.locator(".trace-group").first().boundingBox();
+      console.log(`[trace height] ${test.info().project.name}: ${Math.round(box!.height)}px`);
+    }
+  });
+}
 
 test("chat errors + talk to a person", async ({ page }) => {
   await mockChat(page, (body, n) => {

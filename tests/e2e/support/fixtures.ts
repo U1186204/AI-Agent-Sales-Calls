@@ -179,6 +179,112 @@ export const REPLY_HUMAN = chatText(
 );
 
 // ---------------------------------------------------------------------------
+// Trace panel states (ui-chat.spec.ts, ui-screenshots.spec.ts)
+// ---------------------------------------------------------------------------
+
+export const STEP_MODEL: TraceStep = {
+  id: "m1",
+  kind: "model",
+  label: "Wrote the reply",
+  why: "claude-haiku-4-5 · 3 calls, 2 tool rounds",
+  outputSummary: "3120 input / 214 output tokens · $0.0042",
+  dataRefs: [],
+  ok: true,
+  ms: 1840,
+};
+
+export const STEP_TOOL_FAILED: TraceStep = {
+  id: "f1",
+  kind: "tool",
+  tool: "check_inventory",
+  label: "Checked live inventory",
+  why: "To confirm stock before quoting.",
+  input: { items: [{ sku: "EL-NM122-250", qty: 2 }] },
+  outputSummary: "The stock check did not finish, so stock was not confirmed.",
+  dataRefs: [],
+  ok: false,
+  error: "inventory_unavailable",
+  ms: 30,
+};
+
+export const STEP_GUARD_BLOCKED: TraceStep = {
+  id: "g1",
+  kind: "guard",
+  label: "Ignored an option from another kind of business",
+  why: "The card action does not apply to this business, so nothing was run.",
+  outputSummary: "Rejected: malformed card action",
+  dataRefs: [],
+  ok: false,
+  error: "invalid_request",
+  ms: 2,
+};
+
+export const STEP_GUARD_OK: TraceStep = {
+  id: "g2",
+  kind: "guard",
+  label: "Blocked an unsafe reply",
+  why: "The draft reply contained internal instructions, so it was replaced.",
+  outputSummary: "Replaced with a safe refusal",
+  dataRefs: [],
+  ok: true,
+  ms: 1,
+};
+
+const LONG_TEXT =
+  "A very long customer note with an_unbroken_identifier_that_keeps_going_and_going_and_going_past_the_edge_of_a_phone_screen plus ordinary words after it.";
+
+/** 12 tools, one with many refs and long values, then the model step. */
+export const TRACE_LONG: TraceStep[] = [
+  {
+    id: "l0",
+    kind: "tool",
+    tool: "search_catalog",
+    label: "Searched the catalog",
+    why: LONG_TEXT,
+    input: { query: LONG_TEXT, limit: 25 },
+    outputSummary: `Found 25 products. ${LONG_TEXT}`,
+    dataRefs: ["EL-X1", "EL-X2", "EL-X3", "EL-X4", "EL-X5", "EL-X6"].map((id) => ({
+      type: "sku" as const,
+      id,
+    })),
+    moreRefs: 19,
+    ok: true,
+    ms: 42,
+  },
+  ...Array.from({ length: 11 }, (_, i): TraceStep => ({
+    ...TRACE_INVENTORY[1]!,
+    id: `l${i + 1}`,
+    ms: 10 + i,
+  })),
+  STEP_MODEL,
+];
+
+export const REPLY_TRACE_TYPICAL = chatText("Yes, it's in stock.", [
+  ...TRACE_INVENTORY,
+  STEP_MODEL,
+]);
+export const REPLY_TRACE_FAILED = chatText("I couldn't confirm stock just now.", [
+  TRACE_INVENTORY[0]!,
+  STEP_TOOL_FAILED,
+  STEP_MODEL,
+]);
+export const REPLY_TRACE_GUARDS = chatText("Sorry, that option isn't available here.", [
+  STEP_GUARD_BLOCKED,
+  STEP_GUARD_OK,
+]);
+export const REPLY_TRACE_LONG = chatText("Here's everything I found.", TRACE_LONG);
+export const REPLY_TRACE_NONE = chatText("Happy to help with that.", []);
+export const REPLY_TRACE_NO_USAGE = chatText("Here's your price.", TRACE_INVENTORY, {
+  usage: undefined,
+});
+export const REPLY_TRACE_STUB = chatText("Scripted reply.", TRACE_INVENTORY, {
+  usage: { ...USAGE, model: "oasis-test-stub", costUsd: 0 },
+});
+export const REPLY_TRACE_OTHER_MODEL = chatText("Here's a longer answer.", TRACE_INVENTORY, {
+  usage: { ...USAGE, model: "claude-sonnet-5-5", costUsd: 0.0158 },
+});
+
+// ---------------------------------------------------------------------------
 // Checkout
 // ---------------------------------------------------------------------------
 

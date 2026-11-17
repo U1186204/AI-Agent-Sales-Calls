@@ -336,65 +336,87 @@ export const EscalateToSupportOutput = z.object({
   responseTime: z.string(),
 });
 
-/** Registry: name → schemas + friendly trace label. */
+/**
+ * Registry: name → schemas, friendly trace label and customer-facing description. The
+ * description is shown in the trace panel; the model reads TOOL_DESCRIPTIONS (agent/tools.ts).
+ */
 export const TOOL_SCHEMAS = {
   search_catalog: {
     input: SearchCatalogInput,
     output: SearchCatalogOutput,
     label: "Searched the catalog",
+    description: "Searches this business's catalog for matching products or services.",
   },
-  get_product: { input: GetProductInput, output: GetProductOutput, label: "Looked up a product" },
+  get_product: {
+    input: GetProductInput,
+    output: GetProductOutput,
+    label: "Looked up a product",
+    description: "Gets the price, stock and details of one product.",
+  },
   check_inventory: {
     input: CheckInventoryInput,
     output: CheckInventoryOutput,
     label: "Checked live inventory",
+    description: "Checks how many units are in stock right now.",
   },
   quote_products: {
     input: QuoteProductsInput,
     output: QuoteProductsOutput,
     label: "Priced the order",
+    description: "Works out the order total, including shipping and estimated tax.",
   },
   list_services: {
     input: ListServicesInput,
     output: ListServicesOutput,
     label: "Listed services and prices",
+    description: "Lists the services on offer, with their options and prices.",
   },
   quote_service: {
     input: QuoteServiceInput,
     output: QuoteServiceOutput,
     label: "Priced the service",
+    description: "Works out the price and length of a service with the chosen options.",
   },
   check_availability: {
     input: CheckAvailabilityInput,
     output: CheckAvailabilityOutput,
     label: "Checked availability",
+    description: "Finds open appointment times on the calendar.",
   },
   check_service_area: {
     input: CheckServiceAreaInput,
     output: CheckServiceAreaOutput,
     label: "Checked the service area",
+    description: "Checks whether a ZIP code is in the area this business serves.",
   },
   get_policies: {
     input: GetPoliciesInput,
     output: GetPoliciesOutput,
     label: "Read store policies",
+    description: "Reads this business's policies, such as returns and cancellations.",
   },
   start_checkout: {
     input: StartCheckoutInput,
     output: StartCheckoutOutput,
     label: "Prepared secure checkout",
+    description: "Sets up the secure form where the customer enters their details.",
   },
   lookup_status: {
     input: LookupStatusInput,
     output: LookupStatusOutput,
     label: "Looked up order status",
+    description: "Finds the current status of an order or booking.",
   },
   escalate_to_support: {
     input: EscalateToSupportInput,
     output: EscalateToSupportOutput,
     label: "Escalated to a person",
+    description: "Hands the conversation to the support team.",
   },
-} as const satisfies Record<ToolName, { input: z.ZodType; output: z.ZodType; label: string }>;
+} as const satisfies Record<
+  ToolName,
+  { input: z.ZodType; output: z.ZodType; label: string; description: string }
+>;
 
 export type ToolInput<N extends ToolName> = z.infer<(typeof TOOL_SCHEMAS)[N]["input"]>;
 export type ToolOutput<N extends ToolName> = z.infer<(typeof TOOL_SCHEMAS)[N]["output"]>;
