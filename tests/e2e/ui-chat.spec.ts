@@ -1,16 +1,23 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   CONVERSATION,
   REPLY_HUMAN,
   REPLY_PRODUCT_FORM,
   REPLY_SERVICE_FORM,
   REPLY_STOCK,
+  REPLY_TRACE_FAILED,
+  REPLY_TRACE_GUARDS,
+  REPLY_TRACE_LONG,
+  REPLY_TRACE_NO_USAGE,
+  REPLY_TRACE_OTHER_MODEL,
+  REPLY_TRACE_TYPICAL,
   chatText,
 } from "./support/fixtures";
 import {
   expectNoHorizontalScroll,
   expectNoSeriousA11yViolations,
   expectTapTargets,
+  expectVisibleFocus,
   mockChat,
   mockCheckout,
 } from "./support/mocks";
@@ -25,6 +32,21 @@ async function openTrace(page: Page) {
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   return dialog;
+}
+
+/** Opens one collapsed checklist row. */
+const expandStep = (trace: Locator, label: string) =>
+  trace.locator("summary.trace-step__row", { hasText: label }).first().click();
+
+/** Sends one message per reply, then opens the panel at the newest reply. */
+async function chatThenOpenTrace(page: Page, replies: number) {
+  await page.goto("/chat/volt-supply");
+  for (let i = 0; i < replies; i++) {
+    await page.locator("#chat-input").fill(`Question ${i + 1}`);
+    await page.locator("#chat-input").press("Enter");
+    await expect(page.locator(".msg--assistant")).toHaveCount(i + 2);
+  }
+  return openTrace(page);
 }
 
 const FALLBACK_TEXT =
@@ -68,13 +90,16 @@ test.describe("chat (AT-60, AT-83, AT-90..92)", () => {
     trace = isWide(page) ? page.locator("aside.trace-aside") : page.getByRole("dialog");
     await page.waitForTimeout(450); // let the sheet's 400 ms entrance finish before axe
     await expect(trace.getByText("Checked live inventory")).toBeVisible();
+    await expandStep(trace, "Searched the catalog");
+    await expandStep(trace, "Checked live inventory");
     await expect(
       trace.getByText("To confirm there is enough stock for two rolls before quoting."),
     ).toBeVisible();
     await expect(trace.locator(".trace-kv").first()).toContainText("12/2 romex");
     await expect(trace.locator(".chip", { hasText: "EL-NM122-250" }).first()).toBeVisible();
-    await expect(trace.locator(".trace-usage")).toContainText("claude-haiku-4-5");
-    await expect(trace.locator(".trace-usage")).toContainText("$0.0042");
+    const replyUsage = trace.locator(".trace-group .trace-usage");
+    await expect(replyUsage).toContainText("claude-haiku-4-5");
+    await expect(replyUsage).toContainText("$0.0042");
     await expect(trace.locator("pre:visible")).toHaveCount(0); // raw JSON only inside a closed disclosure
     await expectNoSeriousA11yViolations(page, "chat with trace");
     if (!isWide(page)) {
@@ -152,6 +177,7 @@ test.describe("chat (AT-60, AT-83, AT-90..92)", () => {
     const trace = isWide(page) ? page.locator("aside.trace-aside") : page.getByRole("dialog");
     const step = trace.locator(".trace-step").first();
     await expect(step).toBeVisible();
+    await step.locator("summary.trace-step__row").click();
     await expect(step.locator(".trace-step__ms")).toHaveCount(0);
     await expect(step.locator(".trace-kv dt")).toHaveText(["Limit"]); // empty "Query" hidden
     await expect(step.locator("li.chip")).toHaveCount(5);
@@ -166,6 +192,123 @@ test.describe("chat (AT-60, AT-83, AT-90..92)", () => {
     );
     // Model steps show only the usage line, not a "Why:" row (VIS-15).
     await expect(trace.locator(".trace-step[data-kind='model'] .trace-step__why")).toHaveCount(0);
+  });
+
+  test("trace rows start collapsed and open by keyboard to the tool name and description", async ({
+    page,
+  }) => {
+    await mockChat(page, [REPLY_TRACE_TYPICAL]);
+    const trace = await chatThenOpenTrace(page, 1);
+    await expect(trace.locator(".trace-group__summary")).toHaveText("3 steps completed · 1.9 s");
+    await expect(trace.locator("details.trace-step")).toHaveCount(3);
+    await expect(trace.locator("details.trace-step[open]")).toHaveCount(0);
+    await expect(trace.locator(".trace-step__body:visible")).toHaveCount(0);
+    await expect(trace.locator('[data-mark="check"]')).toHaveCount(3);
+    await expect(trace.locator(".trace-step .badge")).toHaveText(["Model"]);
+
+    const row = trace.locator("summary.trace-step__row", { hasText: "Checked live inventory" });
+    await row.focus();
+    await page.keyboard.press("Enter");
+    const step = trace.locator("details.trace-step", { hasText: "Checked live inventory" });
+    await expect(step).toHaveAttribute("open", "");
+    await expectVisibleFocus(page);
+    await expect(step.locator("code")).toHaveText("check_inventory");
+    await expect(step.getByText("Checks how many units are in stock right now.")).toBeVisible();
+    await expect(step.locator(".trace-step__ms")).toContainText("18 ms");
+    await page.keyboard.press("Space");
+    await expect(step).not.toHaveAttribute("open", "");
+
+    await expandStep(trace, "Wrote the reply");
+    await expect(trace.getByText("The AI model writes the reply")).toBeVisible();
+    await expectNoSeriousA11yViolations(page, "trace checklist");
+    await expectNoHorizontalScroll(page);
+    if (isPhone(page)) await expectTapTargets(page, ".trace-step__row", "trace rows");
+  });
+
+  test("failed steps start open without a checkmark; guards never get one", async ({ page }) => {
+    await mockChat(page, [REPLY_TRACE_FAILED, REPLY_TRACE_GUARDS]);
+    const trace = await chatThenOpenTrace(page, 2);
+    const failedReply = trace.getByRole("article", { name: "Reply 1" });
+    await expect(failedReply.locator(".trace-group__summary")).toHaveText(
+      "1 of 3 steps failed · 1.9 s",
+    );
+    await expect(failedReply.locator('[data-mark="check"]')).toHaveCount(2);
+    const failed = failedReply.locator("details.trace-step[open]");
+    await expect(failed).toHaveCount(1);
+    await expect(failed.locator('[data-mark="failed"]')).toBeVisible();
+    await expect(failed.locator('[data-mark="check"]')).toHaveCount(0);
+    await expect(failed.locator(".badge--attention")).toHaveText("Failed");
+    await expect(failed.getByText("inventory_unavailable")).toBeVisible();
+
+    const guards = trace.getByRole("article", { name: "Reply 2" });
+    await expect(guards.locator('[data-mark="check"]')).toHaveCount(0);
+    await expect(guards.locator('[data-mark="failed"]')).toHaveCount(1);
+    await expect(guards.locator('[data-mark="guard"]')).toHaveCount(1);
+    await expect(guards.locator(".trace-step .badge").last()).toHaveText("Safety check");
+    await expectNoSeriousA11yViolations(page, "trace with failures");
+  });
+
+  test("the conversation total skips replies without usage", async ({ page }) => {
+    await mockChat(page, [REPLY_TRACE_TYPICAL, REPLY_TRACE_NO_USAGE, REPLY_TRACE_OTHER_MODEL]);
+    const trace = await chatThenOpenTrace(page, 3);
+    const total = trace.locator(".trace-total");
+    await expect(total).toContainText("$0.0200");
+    await expect(total).toContainText("6,240 in / 428 out tokens");
+    await expect(total).toContainText("claude-haiku-4-5, claude-sonnet-5-5");
+    await expect(total).toContainText("Covers 2 of 3 replies.");
+    await expect(trace.locator(".trace-group .trace-usage")).toHaveCount(2);
+    await expect(trace.getByText("$0.0000")).toHaveCount(0);
+  });
+
+  test("no total when no reply reported usage", async ({ page }) => {
+    await mockChat(page, [REPLY_TRACE_NO_USAGE]);
+    const trace = await chatThenOpenTrace(page, 1);
+    await expect(trace.locator(".trace-group")).toHaveCount(1);
+    await expect(trace.locator(".trace-total")).toHaveCount(0);
+  });
+
+  test("the sticky total never covers a focused row", async ({ page }) => {
+    await mockChat(page, [REPLY_TRACE_LONG]);
+    const trace = await chatThenOpenTrace(page, 1);
+    const total = trace.locator(".trace-total");
+    const rows = trace.locator("summary.trace-step__row");
+    const count = await rows.count();
+    expect(count).toBe(13);
+    await rows.first().focus();
+    for (let i = 1; i < count; i++) {
+      await page.keyboard.press("Tab");
+      await expect(rows.nth(i)).toBeFocused();
+      const row = (await rows.nth(i).boundingBox())!;
+      const bar = (await total.boundingBox())!;
+      expect(row.y + row.height, `row ${i} clear of the total`).toBeLessThanOrEqual(bar.y);
+    }
+  });
+
+  test("the total stops sticking on very short screens", async ({ page }) => {
+    await page.setViewportSize({ width: 1100, height: 400 });
+    await mockChat(page, [REPLY_TRACE_TYPICAL]);
+    const trace = await chatThenOpenTrace(page, 1);
+    await expect(trace.locator(".trace-total")).toHaveCSS("position", "static");
+  });
+
+  test("the reply link scrolls to, focuses and highlights its reply", async ({ page }) => {
+    await mockChat(page, [REPLY_TRACE_TYPICAL, REPLY_TRACE_LONG]);
+    await page.goto("/chat/volt-supply");
+    for (const [i, text] of ["one", "two"].entries()) {
+      await page.locator("#chat-input").fill(text);
+      await page.locator("#chat-input").press("Enter");
+      await expect(page.locator(".msg--assistant")).toHaveCount(i + 2);
+    }
+    await page
+      .getByRole("button", { name: /see how it answered/ })
+      .first()
+      .click();
+    const trace = isWide(page) ? page.locator("aside.trace-aside") : page.getByRole("dialog");
+    const reply = trace.getByRole("article", { name: "Reply 1" });
+    await expect(reply).toBeFocused();
+    await expect(reply).toHaveAttribute("data-highlight", "true");
+    await expect(reply).toBeInViewport();
+    await expect(trace.locator(".trace-group").first()).toHaveAttribute("aria-label", "Reply 2");
   });
 
   test("user text and assistant text render as text, never HTML (AT-83)", async ({ page }) => {

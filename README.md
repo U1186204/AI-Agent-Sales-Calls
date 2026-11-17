@@ -5,7 +5,7 @@ An AI sales, support and scheduling assistant that sells products, books appoint
 [![CI](https://github.com/U1186204/AI-Agent-Sales-Calls/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/U1186204/AI-Agent-Sales-Calls/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/U1186204/AI-Agent-Sales-Calls/badges/coverage.json)](https://github.com/U1186204/AI-Agent-Sales-Calls/actions/workflows/ci.yml)
 
-![Oasis chat for Volt & Wire Electrical Supply: the customer asks to buy two electrical boxes, the assistant replies with the price and an inline secure checkout form, and the "How the agent answered" panel on the right lists each tool call with its reason, inputs, result and referenced SKUs.](docs/images/chat-order-with-trace.png)
+![Oasis chat for Volt & Wire Electrical Supply: the customer asks to buy two electrical boxes, the assistant replies with the price and an inline secure checkout form, and the "How the agent answered" panel on the right shows each tool call.](docs/images/chat-order-with-trace.png)
 
 **Contents:**
 [What it does](#what-it-does) ·
@@ -299,13 +299,15 @@ The full rules live in [`docs/SPEC.md`](docs/SPEC.md).
 
 ### Transparency panel
 
-The "How the agent answered" panel lists every tool call for each reply, newest first:
+The "How the agent answered" panel is a checklist of every step behind each reply, newest first. Each reply has a one-line outcome ("3 steps completed · 1.9 s"), and failed steps start open. Opening a step shows:
 
-- a friendly label ("Checked availability") and the model's stated reason,
+- the tool name and what it does, a friendly label ("Checked availability") and the model's stated reason,
 - the inputs, with personal data masked and empty values left out,
 - a readable result ("6 openings: Wed Oct 7, 9:00 AM; …"),
 - up to six data references (SKUs, service codes, slots, "Checkout #xxxx"), never raw database IDs,
-- the time taken, plus the model, tokens and cost of the turn.
+- the time taken.
+
+Below each reply are its model, tokens and cost. The conversation's total cost and tokens stay at the bottom of the panel.
 
 On phones the panel opens from a **Trace** button in the header.
 

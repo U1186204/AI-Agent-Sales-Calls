@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The earlier Python/Streamlit prototype. The repository is now the Next.js app only.
 
+### Changed
+
+- **Trace panel checklist.** "How the agent answered" is now a compact checklist: each reply
+  has a one-line outcome, and each step is a collapsed row with a status mark that opens to the
+  tool name, a plain-English description and all the earlier detail. Failed steps start open.
+  A conversation total of cost and tokens stays at the bottom of the panel.
+
 ### Added
 
 - **Guided chat cards.** Replies before checkout come with interactive cards drawn like the

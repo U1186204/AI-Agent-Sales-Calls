@@ -1388,6 +1388,11 @@ main:focus {
   border-left: 1px solid var(--line);
   background: var(--surface-3);
 }
+/* Keeps focused rows clear of the sticky conversation total. */
+.trace-aside,
+.sheet__content {
+  scroll-padding-bottom: 120px;
+}
 @media (min-width: 1024px) {
   .trace-aside {
     display: block;
@@ -1400,6 +1405,13 @@ main:focus {
 }
 .trace {
   padding: 24px 20px 32px;
+}
+/* Column layout so the conversation total sits on the panel's bottom edge when content is short. */
+.trace[data-totals="true"] {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding-bottom: 0;
 }
 .trace__head {
   margin-bottom: 18px;
@@ -1434,6 +1446,9 @@ main:focus {
   gap: 10px;
   scroll-margin-top: 16px;
 }
+.trace-group:last-of-type {
+  margin-bottom: 24px;
+}
 .trace-group + .trace-group {
   margin-top: 26px;
   padding-top: 22px;
@@ -1442,12 +1457,25 @@ main:focus {
 .trace-group:focus-visible {
   outline-offset: 6px;
 }
-.trace-group[data-highlight="true"] .trace-step {
-  box-shadow: 0 0 0 2px var(--accent);
-}
 .trace-group__head {
   display: grid;
   gap: 2px;
+}
+.trace-group__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 12px;
+}
+.trace-group__summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-ink);
+  font-variant-numeric: tabular-nums;
+}
+.trace-group__summary[data-failed="true"] {
+  color: var(--attention);
 }
 .trace-group__label {
   font-size: 12px;
@@ -1473,46 +1501,125 @@ main:focus {
   background: var(--surface);
   border: 1px solid var(--line);
 }
-.trace-step {
-  display: grid;
-  gap: 10px;
-  padding: 14px 16px;
+.trace-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
   border-radius: var(--r-md);
   background: var(--surface);
   border: 1px solid var(--line);
   transition: box-shadow var(--t-slow) var(--ease);
 }
-.trace-step__top {
+.trace-group[data-highlight="true"] .trace-steps,
+.trace-group[data-highlight="true"] .trace-group__none {
+  box-shadow: 0 0 0 2px rgb(10 124 134 / 0.45);
+}
+.trace-steps > li + li {
+  border-top: 1px solid var(--line);
+}
+.trace-step__row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
+  min-height: 40px;
+  padding: 7px 12px;
+  cursor: pointer;
+  list-style: none;
+  transition: background var(--t-fast) var(--ease);
+}
+.trace-step__row::-webkit-details-marker {
+  display: none;
+}
+.trace-step__row:hover {
+  background: var(--surface-2);
+}
+.trace-step__row:focus-visible {
+  outline-offset: -2px;
+  border-radius: var(--r-md);
+}
+.trace-step__mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+}
+.trace-step__mark svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.4;
+}
+.trace-step__mark[data-mark="guard"] {
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.trace-step__mark[data-mark="failed"] {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+.trace-step__mark:not([data-mark="check"]) svg {
+  stroke-width: 2;
+}
+.trace-step__label {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.trace-step__chevron {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
+  transition: transform var(--t-fast) var(--ease);
+}
+.trace-step[open] > .trace-step__row .trace-step__chevron {
+  transform: rotate(90deg);
+}
+.trace-step__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 4px 12px 14px;
+}
+.trace-step__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .trace-step__icon {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   flex: none;
-  border-radius: 8px;
-  background: var(--accent-tint);
-  color: var(--accent-ink);
+  color: var(--ink-2);
 }
 .trace-step__icon svg {
   width: 16px;
   height: 16px;
 }
-.trace-step[data-ok="false"] .trace-step__icon {
-  background: var(--danger-tint);
-  color: var(--danger);
-}
-.trace-step[data-kind="guard"] .trace-step__icon {
-  background: var(--surface-2);
-  color: var(--ink-2);
-}
-.trace-step__label {
-  font-size: 15px;
+.trace-step__tool {
+  min-width: 0;
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1.3;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+code.trace-step__tool {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.trace-step__desc {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--ink-2);
 }
 .trace-step__ms {
   margin-left: auto;
@@ -1520,11 +1627,11 @@ main:focus {
   color: var(--muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  padding-top: 2px;
 }
 .trace-step__why {
   font-size: 14px;
   color: var(--ink-2);
+  overflow-wrap: anywhere;
 }
 .trace-step__why b {
   font-weight: 600;
@@ -1566,10 +1673,12 @@ main:focus {
 .trace-step__out {
   font-size: 14px;
   color: var(--ink);
+  overflow-wrap: anywhere;
 }
 .trace-step__error {
   font-size: 13px;
   color: var(--danger);
+  overflow-wrap: anywhere;
 }
 .trace-refs {
   display: flex;
@@ -1622,7 +1731,7 @@ main:focus {
   font-variant-numeric: tabular-nums;
   padding-inline: 2px;
 }
-.trace-usage .trace-testmode {
+.trace-testmode {
   font-weight: 700;
   color: var(--attention);
   background: var(--attention-tint);
@@ -1632,6 +1741,45 @@ main:focus {
 .trace-usage span b {
   font-weight: 600;
   color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.trace-total {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  gap: 2px;
+  margin: auto -20px 0;
+  padding: 12px 20px max(14px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+/* Landscape phones and high zoom: a pinned bar would take over the little height there is. */
+@media (max-height: 500px) {
+  .trace-total {
+    position: static;
+  }
+}
+.trace-total__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.trace-total__head b {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.trace-total .trace-usage {
+  padding-inline: 0;
+}
+.trace-total__note {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 /* Drawer (native <dialog>) */
@@ -2894,13 +3042,6 @@ main:focus {
 .section-end {
   padding-bottom: 80px;
 }
-.trace-steps {
-  display: grid;
-  gap: 10px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
 .trace-refs {
   list-style: none;
   margin: 0;
@@ -3089,12 +3230,6 @@ body:has(.chat-page) {
   list-style: none;
   margin: 0;
   padding: 0;
-}
-.trace-group[data-highlight="true"] .trace-step {
-  box-shadow: 0 0 0 2px rgb(10 124 134 / 0.45);
-}
-.trace-step {
-  transition: box-shadow var(--t-slow) var(--ease);
 }
 
 /* ---------- Design round 2 ---------- */
@@ -3506,7 +3641,8 @@ body > .owner-shell {
     min-height: 44px;
     padding-block: 0;
   }
-  .details summary {
+  .details summary,
+  .trace-step__row {
     min-height: 44px;
   }
   .site-footer a,

@@ -25,6 +25,57 @@ export function formatMs(ms: number): string {
   return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
 }
 
+/** One-line outcome of a reply's trace: "3 steps completed · 1.9 s", "1 of 3 steps failed". */
+export function traceSummaryLabel(
+  steps: readonly { kind: string; ok: boolean; ms: number }[],
+): string {
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const failed = steps.filter((s) => !s.ok).length;
+  // Guards report ok when they did their job, which may be bad news ("Usage limit reached"),
+  // so they are counted apart from completed work.
+  const guards = steps.filter((s) => s.ok && s.kind === "guard").length;
+  const done = steps.length - guards;
+  const ms = steps.reduce((sum, s) => sum + (Number.isFinite(s.ms) ? s.ms : 0), 0);
+  const parts: string[] = [];
+  if (failed > 0) {
+    parts.push(steps.length === 1 ? "1 step failed" : `${failed} of ${steps.length} steps failed`);
+  } else {
+    if (done > 0) parts.push(`${plural(done, "step")} completed`);
+    if (guards > 0) parts.push(plural(guards, "safety check"));
+  }
+  if (ms > 0) parts.push(formatMs(ms));
+  return parts.join(" · ");
+}
+
+export interface UsageTotals {
+  /** Replies in the conversation, and how many of them reported usage. */
+  replies: number;
+  reported: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  /** Distinct models, in first-used order. */
+  models: string[];
+}
+
+/** Conversation totals. Replies without usage add nothing; null when none reported any. */
+export function usageTotals(
+  usages: readonly (
+    { model: string; inputTokens: number; outputTokens: number; costUsd: number } | undefined
+  )[],
+): UsageTotals | null {
+  const known = usages.filter((u) => u !== undefined);
+  if (known.length === 0) return null;
+  return {
+    replies: usages.length,
+    reported: known.length,
+    inputTokens: known.reduce((n, u) => n + u.inputTokens, 0),
+    outputTokens: known.reduce((n, u) => n + u.outputTokens, 0),
+    costUsd: known.reduce((n, u) => n + u.costUsd, 0),
+    models: [...new Set(known.map((u) => u.model))],
+  };
+}
+
 /** Calendar date (YYYY-MM-DD) of an instant in an IANA timezone. */
 export function isoDateInTz(iso: string, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
